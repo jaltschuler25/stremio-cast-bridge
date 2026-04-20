@@ -10,6 +10,15 @@ const nextConfig: NextConfig = {
    * stops Next from redirecting them away.
    */
   trailingSlash: true,
+
+  /**
+   * `standalone` emits `.next/standalone/server.js` with a pruned
+   * `node_modules/` containing only runtime deps. We ship that tree
+   * inside the Mac .app bundle so the end user doesn't need `npm
+   * install` — Node just runs `server.js` against the baked tree.
+   * See scripts/package-app.sh.
+   */
+  output: "standalone",
 };
 
 export default nextConfig;

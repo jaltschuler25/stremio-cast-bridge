@@ -2,15 +2,28 @@
 
 Re-enables the greyed-out Chromecast button in the **Stremio 5 macOS (ARM) beta** for a single user on a single home network.
 
-## One-liner install (macOS)
+## Download (macOS, no terminal required)
 
-Paste this into a Terminal. It clones this repo, downloads the official Stremio 5 beta DMG, installs it, and builds `/Applications/Stremio Cast.app`:
+Grab the latest DMG from the public downloads repo:
+
+**→ [Download Stremio Cast for macOS](https://github.com/jaltschuler25/stremio-cast-downloads/releases/latest)**
+
+- Apple Silicon (M1/M2/M3/M4) — `StremioCast-*-arm64.dmg`
+- Intel — `StremioCast-*-x64.dmg`
+
+Open the DMG, drag **Stremio Cast** into **Applications**, then launch it from Spotlight or the Dock. First launch: right-click the app → **Open** (Gatekeeper warning; the build is ad-hoc signed, not Apple-notarized).
+
+You still need **Stremio 5 beta** installed in `/Applications` — download it from [stremio.com](https://www.stremio.com/).
+
+## One-liner install (macOS, for devs)
+
+Paste this into a Terminal. It clones this repo, downloads the official Stremio 5 beta DMG, installs it, and builds `/Applications/Stremio Cast.app` from source:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/jaltschuler25/stremio-cast-bridge/main/scripts/bootstrap.sh)"
 ```
 
-Requires **Node.js 20+** and **git** already installed. After it finishes, always launch via **Stremio Cast.app** instead of the regular Stremio icon.
+Requires **Node.js 20+** and **git** already installed.
 
 ## Why this exists
 

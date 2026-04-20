@@ -1,0 +1,111 @@
+# Release pipeline
+# -------------------------------------------------
+# Triggered by a git tag like `v0.1.0`. Builds the self-contained
+# Stremio Cast.app + .dmg for both Apple Silicon and Intel, then
+# publishes them to the PUBLIC downloads repo so non-technical users
+# have a single click-to-install link:
+#
+#   https://github.com/jaltschuler25/stremio-cast-downloads/releases/latest
+#
+# Even when this source repo is flipped private, the downloads repo
+# stays public, giving a stable share URL for laymen.
+
+name: Release DMG
+
+on:
+  push:
+    tags: ['v*']
+  # Allow triggering manually from the Actions tab without tagging —
+  # useful for dry-running the pipeline from the default branch.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version string baked into the DMG (e.g. 0.1.0-dev)'
+        required: true
+        default: '0.1.0-dev'
+
+jobs:
+  build:
+    # Matrix over the two Mac architectures. `macos-14` is Apple
+    # Silicon; `macos-13` is the last Intel runner GitHub offers.
+    # Each builds its native DMG so users download the right one.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Cache npm to keep CI fast across re-runs of the same tag.
+          cache: 'npm'
+
+      - name: Resolve version string
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="${{ github.event.inputs.version }}"
+          fi
+          echo "value=${V}" >> "${GITHUB_OUTPUT}"
+          echo "Version: ${V}"
+
+      - name: Package .app + .dmg
+        env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          chmod +x scripts/package-app.sh
+          ./scripts/package-app.sh
+
+      - name: Upload DMG as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: dist/StremioCast-*.dmg
+          if-no-files-found: error
+
+  publish:
+    # Only publish to the public downloads repo for real tag pushes.
+    # Manual dispatch runs stop at "artifacts" so we don't spam
+    # releases during testing.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all built DMGs
+        uses: actions/download-artifact@v4
+        with:
+          path: dmgs
+          merge-multiple: true
+
+      - name: Publish release to public downloads repo
+        # PUBLIC_RELEASES_TOKEN is a PAT with `repo` scope on
+        # jaltschuler25/stremio-cast-downloads. Stored in this repo's
+        # Settings → Secrets → Actions.
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls -la dmgs
+          gh release create "${TAG}" \
+            dmgs/StremioCast-*.dmg \
+            --repo jaltschuler25/stremio-cast-downloads \
+            --title "Stremio Cast ${TAG}" \
+            --notes "Drag **Stremio Cast.app** into **/Applications** from the DMG that matches your Mac:
+
+- Apple Silicon (M1/M2/M3/M4): \`StremioCast-*-arm64.dmg\`
+- Intel: \`StremioCast-*-x64.dmg\`
+
+Requires **Stremio 5 beta** already installed in /Applications. First launch: right-click → Open (the build is not Apple-notarized yet)."
