@@ -2,6 +2,16 @@
 
 Re-enables the greyed-out Chromecast button in the **Stremio 5 macOS (ARM) beta** for a single user on a single home network.
 
+## One-liner install (macOS)
+
+Paste this into a Terminal. It clones this repo, downloads the official Stremio 5 beta DMG, installs it, and builds `/Applications/Stremio Cast.app`:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/jaltschuler25/stremio-cast-bridge/main/scripts/bootstrap.sh)"
+```
+
+Requires **Node.js 20+** and **git** already installed. After it finishes, always launch via **Stremio Cast.app** instead of the regular Stremio icon.
+
 ## Why this exists
 
 Stremio 5 ships a new Rust-based shell that hosts the web UI inside WKWebView. The web UI's cast logic ([`ChromecastTransport`](https://github.com/Stremio/stremio-web/blob/development/src/services/Chromecast/ChromecastTransport.js)) depends on Google's Cast Web Sender SDK, which is Chromium-only — it silently no-ops inside WKWebView. In the v4 shell (Qt/Chromium) the SDK worked, so the button lit up. In v5 it stays disabled forever, and [the Stremio team has left the feature unimplemented](https://github.com/Stremio/stremio-bugs/issues/1316).
