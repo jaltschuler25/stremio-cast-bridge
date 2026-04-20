@@ -52,8 +52,11 @@ log "node runtime    : ${NODE_VERSION} (${NODE_ARCH})"
 #    This is what we actually ship — no devDeps, no sources.
 # ---------------------------------------------------------------
 cd "${BRIDGE_DIR}"
-log "installing deps (npm ci) …"
-npm ci --silent
+log "installing deps (npm install) …"
+# `npm install` (not `npm ci`) so the build doesn't fail if the
+# package-lock.json was regenerated in a PR. Output is left visible
+# so CI logs explain any install failures directly.
+npm install
 
 log "running next build …"
 npm run build
