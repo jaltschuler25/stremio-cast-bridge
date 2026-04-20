@@ -2,11 +2,14 @@
   "name": "stremio-cast-bridge",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1 -p 36970",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "next start -H 127.0.0.1 -p 36971",
+    "lint": "eslint",
+    "install:app": "bash scripts/install-app.sh",
+    "uninstall:app": "bash scripts/uninstall-app.sh"
   },
   "dependencies": {
     "next": "16.2.4",

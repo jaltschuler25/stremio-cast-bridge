@@ -1,65 +1,101 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+/**
+ * Control panel home page.
+ *
+ * Intentionally minimal — just enough to tell the user whether
+ * everything is wired up and give them a one-click path to launch
+ * Stremio 5 with our cast bridge active. All of the heavy lifting
+ * happens inside the injected shim.
+ */
+import { useBridgeStatus } from "@/hooks/useBridgeStatus";
+import { DeviceList } from "@/components/DeviceList";
+import { LaunchButton } from "@/components/LaunchButton";
+import { StatusPill } from "@/components/StatusPill";
+
+export default function HomePage() {
+  const { state, refresh } = useBridgeStatus();
+
+  const data = state.kind === "ready" ? state.data : null;
+  const serverUp = !!data?.serverReachable;
+  const appFound = !!data?.stremioAppPath;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-8 px-6 py-16 text-slate-100">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight">
+          Stremio 5 Cast Bridge
+        </h1>
+        <p className="text-sm text-slate-400">
+          Re-enables the greyed-out Chromecast button in the Stremio 5 Mac
+          ARM beta by intercepting the Google Cast API calls the WebView
+          can't fulfil and routing them through Stremio&apos;s own streaming
+          server (which already speaks Chromecast).
+        </p>
+      </header>
+
+      <section className="space-y-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Prerequisites
+        </h2>
+        <ul className="space-y-2 rounded-xl border border-white/5 bg-white/[.02] p-4 text-sm">
+          <li className="flex items-center justify-between gap-3">
+            <span>
+              Stremio streaming server on <code>localhost:11470</code>
+            </span>
+            <StatusPill tone={serverUp ? "ok" : "bad"}>
+              {serverUp ? "Reachable" : "Not reachable"}
+            </StatusPill>
+          </li>
+          <li className="flex items-center justify-between gap-3">
+            <span>
+              Stremio 5 app bundle
+              {data?.stremioAppVersion ? ` (v${data.stremioAppVersion})` : ""}
+            </span>
+            <StatusPill tone={appFound ? "ok" : "warn"}>
+              {appFound ? "Found" : "Not found"}
+            </StatusPill>
+          </li>
+          <li className="flex items-center justify-between gap-3">
+            <span>Discovered cast targets</span>
+            <StatusPill tone={data?.devices.length ? "ok" : "info"}>
+              {data?.devices.length ?? 0}
+            </StatusPill>
+          </li>
+        </ul>
+        {!serverUp && (
+          <p className="text-xs text-amber-300">
+            Start Stremio 5 once so the bundled server boots, then come
+            back here — we only need it running in the background.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Devices visible to Stremio
+        </h2>
+        {data ? (
+          <DeviceList devices={data.devices} />
+        ) : (
+          <div className="h-24 animate-pulse rounded-xl bg-white/[.02]" />
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Launch
+        </h2>
+        <LaunchButton disabled={!serverUp || !appFound} onLaunched={refresh} />
+        <p className="text-xs text-slate-500">
+          This runs{" "}
+          <code>
+            Stremio.app --webui-url=http://127.0.0.1:36970/cast-bridge/
+          </code>{" "}
+          so the shell loads the shimmed WebUI served by this Next.js
+          server.
+        </p>
+      </section>
+    </main>
   );
 }
