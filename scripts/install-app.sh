@@ -72,8 +72,16 @@ PLIST="${APP_PATH}/Contents/Info.plist"
 # so the Dock/Spotlight entry looks native. osacompile writes its
 # default icon to Contents/Resources/applet.icns — we overwrite it.
 # ---------------------------------------------------------------
-STREMIO_ICON="/Applications/Stremio 2.app/Contents/Resources/AppIcon.icns"
-if [[ -f "${STREMIO_ICON}" ]]; then
+STREMIO_ICON=""
+for candidate in \
+  "/Applications/Stremio 2.app/Contents/Resources/AppIcon.icns" \
+  "/Applications/Stremio.app/Contents/Resources/AppIcon.icns"; do
+  if [[ -f "${candidate}" ]]; then
+    STREMIO_ICON="${candidate}"
+    break
+  fi
+done
+if [[ -n "${STREMIO_ICON}" ]]; then
   cp "${STREMIO_ICON}" "${APP_PATH}/Contents/Resources/applet.icns"
   log "copied Stremio icon"
 fi

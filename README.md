@@ -56,6 +56,21 @@ This repository is an **unofficial** reference implementation (not affiliated wi
 
 ## Setup
 
+### Fast path: Stremio 5 beta + cast bridge (macOS)
+
+From this repo (requires **Node.js 20+** already installed):
+
+```bash
+npm run install:all
+```
+
+This downloads the **official** Stremio 5 beta `.dmg` from Stremio’s CDN (`dl.strem.io`), installs `Stremio.app` to `/Applications`, then runs `npm install`, `npm run build`, and `install:app` to create **Stremio Cast.app**.
+
+- Override the beta version if Stremio ships a newer DMG:  
+  `STREMIO_VERSION=v5.1.xx npm run install:all`
+- Skip re-downloading Stremio if you only want to refresh the bridge:  
+  `SKIP_STREMIO=1 npm run install:all`
+
 ### Recommended: install as a Mac app (one-click launch)
 
 This builds the bridge in production mode and drops a native

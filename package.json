@@ -9,6 +9,7 @@
     "start": "next start -H 127.0.0.1 -p 36971",
     "lint": "eslint",
     "install:app": "bash scripts/install-app.sh",
+    "install:all": "bash scripts/install-stremio-and-cast.sh",
     "uninstall:app": "bash scripts/uninstall-app.sh"
   },
   "dependencies": {
