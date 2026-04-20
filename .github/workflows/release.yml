@@ -76,12 +76,15 @@ jobs:
           if-no-files-found: error
 
   publish:
-    # Only publish to the public downloads repo for real tag pushes.
-    # Manual dispatch runs stop at "artifacts" so we don't spam
-    # releases during testing.
+    # Only publish for real tag pushes. Manual dispatch runs stop at
+    # "artifacts" so we don't spam releases during testing.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    # `contents: write` lets the default GITHUB_TOKEN publish releases
+    # on THIS repo without any PAT setup.
+    permissions:
+      contents: write
     steps:
       - name: Download all built DMGs
         uses: actions/download-artifact@v4
@@ -89,23 +92,51 @@ jobs:
           path: dmgs
           merge-multiple: true
 
-      - name: Publish release to public downloads repo
-        # PUBLIC_RELEASES_TOKEN is a PAT with `repo` scope on
-        # jaltschuler25/stremio-cast-downloads. Stored in this repo's
-        # Settings → Secrets → Actions.
+      # Standard release notes shared between both publish targets.
+      - name: Write release notes
+        id: notes
+        run: |
+          cat > notes.md <<'NOTES'
+          Drag **Stremio Cast.app** into **/Applications** from the DMG that matches your Mac:
+
+          - Apple Silicon (M1/M2/M3/M4): `StremioCast-*-arm64.dmg`
+          - Intel: `StremioCast-*-x64.dmg`
+
+          Requires **Stremio 5 beta** already installed in /Applications. First launch: right-click → Open (the build is ad-hoc signed, not Apple-notarized yet).
+          NOTES
+
+      # Primary: publish on THIS repo using the built-in GITHUB_TOKEN.
+      # Works out of the box, no PAT configuration required.
+      - name: Publish release on source repo
         env:
-          GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           ls -la dmgs
           gh release create "${TAG}" \
             dmgs/StremioCast-*.dmg \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Stremio Cast ${TAG}" \
+            --notes-file notes.md
+
+      # Mirror: also publish to the dedicated public downloads repo
+      # IF a PAT secret is configured. This is the path to use when
+      # the source repo is eventually made private — the downloads
+      # repo stays public so share links keep working.
+      #
+      # To enable: create a classic PAT with `repo` scope at
+      # https://github.com/settings/tokens, then add it to this repo
+      # as Settings → Secrets → Actions → PUBLIC_RELEASES_TOKEN.
+      - name: Mirror release to public downloads repo
+        if: ${{ secrets.PUBLIC_RELEASES_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "${TAG}" \
+            dmgs/StremioCast-*.dmg \
             --repo jaltschuler25/stremio-cast-downloads \
             --title "Stremio Cast ${TAG}" \
-            --notes "Drag **Stremio Cast.app** into **/Applications** from the DMG that matches your Mac:
-
-- Apple Silicon (M1/M2/M3/M4): \`StremioCast-*-arm64.dmg\`
-- Intel: \`StremioCast-*-x64.dmg\`
-
-Requires **Stremio 5 beta** already installed in /Applications. First launch: right-click → Open (the build is not Apple-notarized yet)."
+            --notes-file notes.md

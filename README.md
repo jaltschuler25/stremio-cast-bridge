@@ -6,7 +6,7 @@ Re-enables the greyed-out Chromecast button in the **Stremio 5 macOS (ARM) beta*
 
 Grab the latest DMG from the public downloads repo:
 
-**→ [Download Stremio Cast for macOS](https://github.com/jaltschuler25/stremio-cast-downloads/releases/latest)**
+**→ [Download Stremio Cast for macOS](https://github.com/jaltschuler25/stremio-cast-bridge/releases/latest)**
 
 - Apple Silicon (M1/M2/M3/M4) — `StremioCast-*-arm64.dmg`
 - Intel — `StremioCast-*-x64.dmg`
