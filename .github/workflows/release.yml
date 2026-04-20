@@ -85,6 +85,12 @@ jobs:
     # on THIS repo without any PAT setup.
     permissions:
       contents: write
+    # Map the optional PAT secret to an env var at the job level.
+    # GitHub Actions forbids referencing `secrets.*` directly inside
+    # step-level `if:` expressions, but `env.*` is allowed — so we
+    # copy through env to gate the mirror step without a hard fail.
+    env:
+      PUBLIC_RELEASES_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
     steps:
       - name: Download all built DMGs
         uses: actions/download-artifact@v4
@@ -129,7 +135,7 @@ jobs:
       # https://github.com/settings/tokens, then add it to this repo
       # as Settings → Secrets → Actions → PUBLIC_RELEASES_TOKEN.
       - name: Mirror release to public downloads repo
-        if: ${{ secrets.PUBLIC_RELEASES_TOKEN != '' }}
+        if: env.PUBLIC_RELEASES_TOKEN != ''
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
           TAG: ${{ github.ref_name }}
