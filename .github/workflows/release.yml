@@ -29,14 +29,15 @@ jobs:
     # Matrix over the two Mac architectures. `macos-14` is Apple
     # Silicon; `macos-13` is the last Intel runner GitHub offers.
     # Each builds its native DMG so users download the right one.
+    # Stremio 5 is currently an Apple Silicon beta only, so we ship
+    # a single arm64 DMG for now. When Stremio ships an Intel build,
+    # re-add `macos-13 / x64` to the matrix.
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-14
             arch: arm64
-          - runner: macos-13
-            arch: x64
 
     runs-on: ${{ matrix.runner }}
 
@@ -103,12 +104,11 @@ jobs:
         id: notes
         run: |
           cat > notes.md <<'NOTES'
-          Drag **Stremio Cast.app** into **/Applications** from the DMG that matches your Mac:
+          Open the DMG and drag **Stremio Cast.app** into **/Applications**.
 
-          - Apple Silicon (M1/M2/M3/M4): `StremioCast-*-arm64.dmg`
-          - Intel: `StremioCast-*-x64.dmg`
+          - Apple Silicon only (M1/M2/M3/M4): `StremioCast-*-arm64.dmg`
 
-          Requires **Stremio 5 beta** already installed in /Applications. First launch: right-click → Open (the build is ad-hoc signed, not Apple-notarized yet).
+          Requires **Stremio 5 beta** already installed in /Applications (download from https://www.stremio.com/). First launch: right-click → Open (the build is ad-hoc signed, not Apple-notarized yet).
           NOTES
 
       # Primary: publish on THIS repo using the built-in GITHUB_TOKEN.
