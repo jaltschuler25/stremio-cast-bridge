@@ -62,36 +62,82 @@ resolve_node() {
 }
 
 # ---------------------------------------------------------------
-# Stremio 5 bundle discovery — same logic the launch API uses, so
-# the script keeps working even if the user renamed "Stremio 2.app".
+# Stremio 5 bundle discovery.
 #
 # Stremio shipped v5 under two different CFBundleIdentifiers over
 # the course of the beta:
 #   * com.westbridge.stremio5-mac        (early beta, v5.1.x)
 #   * com.stremio.stremio-shell-macos    (current/newer beta; DMG
 #     URL now lives under /stremio-shell-macos/ too)
-# We accept either so users on either build get the cast bridge.
+# We accept either — but selection order matters. `find` returns
+# apps in inode/creation order, so naïvely "first match wins" can
+# pick a freshly-installed blank Stremio over the user's real
+# profile. Instead we:
+#   1. Collect ALL matching bundles.
+#   2. Prefer the one that already has ~/Library/WebKit/<bundleId>/
+#      WebsiteData with real content (= the Stremio the user has
+#      actually used, including their installed addons, library,
+#      and login).
+#   3. Allow explicit override via STREMIO_BUNDLE_ID env var.
+# This keeps existing users on their existing data even after a new
+# Stremio build lands in /Applications under a new bundle ID.
 # ---------------------------------------------------------------
-STREMIO_BUNDLE_IDS_REGEX='^(com\.westbridge\.stremio5-mac|com\.stremio\.stremio-shell-macos)$'
+STREMIO_BUNDLE_IDS=(com.westbridge.stremio5-mac com.stremio.stremio-shell-macos)
 
-find_stremio_bundle() {
-  local app
-  while IFS= read -r app; do
-    if /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
-        "${app}/Contents/Info.plist" 2>/dev/null \
-        | grep -qE "${STREMIO_BUNDLE_IDS_REGEX}"; then
-      printf '%s\n' "${app}"
-      return 0
-    fi
-  done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
-  return 1
-}
-
-# Resolve the bundle ID of the discovered app so we can target the
-# right cache/data directories when purging WKWebView state.
 bundle_id_of() {
   /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
     "${1}/Contents/Info.plist" 2>/dev/null
+}
+
+# Returns the number of bytes of stored web data for a given bundle
+# ID. 0 if nothing has been stored (fresh install).
+webkit_data_size() {
+  local id="$1"
+  local dir="${HOME}/Library/WebKit/${id}/WebsiteData"
+  [[ -d "${dir}" ]] || { printf '0\n'; return 0; }
+  du -sk "${dir}" 2>/dev/null | awk '{print $1+0}'
+}
+
+find_stremio_bundle() {
+  # Collect all matching /Applications/*.app bundles.
+  local candidates=()
+  local app id
+  while IFS= read -r app; do
+    id="$(bundle_id_of "${app}")"
+    for want in "${STREMIO_BUNDLE_IDS[@]}"; do
+      if [[ "${id}" == "${want}" ]]; then
+        candidates+=("${app}|${id}")
+        break
+      fi
+    done
+  done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
+
+  if [[ ${#candidates[@]} -eq 0 ]]; then
+    return 1
+  fi
+
+  # Explicit override: user-pinned bundle ID (advanced escape hatch).
+  if [[ -n "${STREMIO_BUNDLE_ID:-}" ]]; then
+    for c in "${candidates[@]}"; do
+      if [[ "${c##*|}" == "${STREMIO_BUNDLE_ID}" ]]; then
+        printf '%s\n' "${c%%|*}"; return 0
+      fi
+    done
+  fi
+
+  # Prefer the bundle whose WebsiteData directory has the most data.
+  # That's almost always the Stremio the user has actually logged
+  # into and populated with addons. Freshly-installed apps have 0
+  # or near-0 bytes here.
+  local best="" best_size=-1 size
+  for c in "${candidates[@]}"; do
+    size="$(webkit_data_size "${c##*|}")"
+    if (( size > best_size )); then
+      best_size="${size}"
+      best="${c%%|*}"
+    fi
+  done
+  printf '%s\n' "${best}"
 }
 
 wait_for_port() {

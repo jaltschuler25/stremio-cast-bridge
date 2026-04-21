@@ -32,8 +32,21 @@
 
     /**
      * Default addon list shipped with Stremio Cast.
-     * Keep this small and uncontroversial — these are the addons a
-     * new user almost always installs anyway.
+     *
+     * IMPORTANT: Opt-in only. Existing users already have their own
+     * addons in Stremio's IndexedDB; auto-navigating to an install
+     * dialog on every launch is noisy and — if the user has multiple
+     * Stremio installs — can make it look like their profile was
+     * wiped when really we just opened a dialog on top of the page.
+     *
+     * Users can enable preinstall by setting a flag in localStorage
+     * from Stremio's devtools (or via our control panel later):
+     *
+     *   localStorage.setItem('castBridge:preinstall-enabled', '1');
+     *
+     * and can disable again with:
+     *
+     *   localStorage.removeItem('castBridge:preinstall-enabled');
      */
     var DEFAULT_ADDONS = [
         {
@@ -44,6 +57,8 @@
             transportUrl: "https://torrentio.strem.fun/manifest.json",
         },
     ];
+
+    var ENABLE_FLAG = "castBridge:preinstall-enabled";
 
     var FLAG_PREFIX = "castBridge:preinstalled:";
 
@@ -109,6 +124,15 @@
      * avoiding a "nag" experience.
      */
     function runPreinstall() {
+        // Gate the whole flow behind an explicit opt-in so we never
+        // auto-navigate an existing user's Stremio window into the
+        // addons modal on launch.
+        try {
+            if (localStorage.getItem(ENABLE_FLAG) !== "1") return;
+        } catch (_) {
+            return; // no storage = don't touch anything
+        }
+
         var pending = DEFAULT_ADDONS.filter(function (a) {
             try {
                 return !localStorage.getItem(FLAG_PREFIX + a.transportUrl);

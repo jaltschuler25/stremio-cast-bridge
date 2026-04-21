@@ -153,22 +153,52 @@ mkdir -p "$(dirname "${LOG_FILE}")"
 log() { printf '[stremio-cast %s] %s\n' "$(date '+%H:%M:%S')" "$*" | tee -a "${LOG_FILE}"; }
 
 # ---- Stremio 5 bundle discovery (by CFBundleIdentifier) ----------
-# Accept both bundle IDs Stremio has shipped during the v5 beta.
-STREMIO_BUNDLE_IDS_REGEX='^(com\.westbridge\.stremio5-mac|com\.stremio\.stremio-shell-macos)$'
-find_stremio_bundle() {
-  local app
-  while IFS= read -r app; do
-    if /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
-        "${app}/Contents/Info.plist" 2>/dev/null \
-        | grep -qE "${STREMIO_BUNDLE_IDS_REGEX}"; then
-      printf '%s\n' "${app}"; return 0
-    fi
-  done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
-  return 1
-}
+# Stremio has shipped v5 under two bundle IDs; we prefer whichever
+# app already owns populated WebKit data so we never switch a user
+# onto a blank profile. See scripts/stremio-cast.sh for full notes.
+STREMIO_BUNDLE_IDS=(com.westbridge.stremio5-mac com.stremio.stremio-shell-macos)
+
 bundle_id_of() {
   /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
     "${1}/Contents/Info.plist" 2>/dev/null
+}
+
+webkit_data_size() {
+  local id="$1"
+  local dir="${HOME}/Library/WebKit/${id}/WebsiteData"
+  [[ -d "${dir}" ]] || { printf '0\n'; return 0; }
+  du -sk "${dir}" 2>/dev/null | awk '{print $1+0}'
+}
+
+find_stremio_bundle() {
+  local candidates=() app id want c size best="" best_size=-1
+  while IFS= read -r app; do
+    id="$(bundle_id_of "${app}")"
+    for want in "${STREMIO_BUNDLE_IDS[@]}"; do
+      if [[ "${id}" == "${want}" ]]; then
+        candidates+=("${app}|${id}")
+        break
+      fi
+    done
+  done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
+  [[ ${#candidates[@]} -eq 0 ]] && return 1
+
+  if [[ -n "${STREMIO_BUNDLE_ID:-}" ]]; then
+    for c in "${candidates[@]}"; do
+      if [[ "${c##*|}" == "${STREMIO_BUNDLE_ID}" ]]; then
+        printf '%s\n' "${c%%|*}"; return 0
+      fi
+    done
+  fi
+
+  for c in "${candidates[@]}"; do
+    size="$(webkit_data_size "${c##*|}")"
+    if (( size > best_size )); then
+      best_size="${size}"
+      best="${c%%|*}"
+    fi
+  done
+  printf '%s\n' "${best}"
 }
 
 wait_for_port() {

@@ -22,13 +22,17 @@ Paste this into a Terminal. It clones this repo, downloads the official Stremio 
 
 Requires **Node.js 20+** and **git** already installed.
 
-## Default addons (pre-installed)
+## Optional: suggest default addons on first launch
 
-On a user's first launch, Stremio Cast automatically opens Stremio's own addon-install dialog for a small curated list of "pack-in" addons so a brand-new user has working stream sources immediately. Currently:
+There's a curated list of "pack-in" addons (currently just [Torrentio](https://torrentio.strem.fun/)) that the bridge can open in Stremio's official `#/addons?addon=<url>` install dialog for brand-new users. This is **opt-in** — it does not run by default so existing users with their own addons aren't disturbed.
 
-- **[Torrentio](https://torrentio.strem.fun/)** — torrent stream provider
+To enable, open Stremio's web inspector (or paste into the cast-bridge control panel's future "Preferences" area) and run:
 
-We deliberately do **not** install silently — we use Stremio's official `#/addons?addon=<url>` flow so the user sees exactly what's being added and can decline. Each addon is prompted at most once per install (tracked in `localStorage` under `castBridge:preinstalled:*`). To change the list, edit `DEFAULT_ADDONS` in [`public/preinstall-addons.js`](public/preinstall-addons.js).
+```js
+localStorage.setItem('castBridge:preinstall-enabled', '1');
+```
+
+Then relaunch. On first launch, each addon in the list opens its install dialog once (per-URL tracked under `castBridge:preinstalled:*` so the user is never re-nagged). Disable again with `localStorage.removeItem('castBridge:preinstall-enabled')`. To change the addon list itself, edit `DEFAULT_ADDONS` in [`public/preinstall-addons.js`](public/preinstall-addons.js).
 
 ## Why this exists
 

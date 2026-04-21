@@ -16,26 +16,41 @@ set -euo pipefail
 BRIDGE_PORT="${BRIDGE_PORT:-36970}"
 WEBUI_URL="http://127.0.0.1:${BRIDGE_PORT}/cast-bridge/"
 
-# Discover the v5 bundle by identifier so the script keeps working
-# even if the user renamed the .app directory. Accept either bundle
-# ID Stremio has shipped during the v5 beta: the original westbridge
-# build and the current stremio-shell-macos build.
-STREMIO_BUNDLE_IDS_REGEX='^(com\.westbridge\.stremio5-mac|com\.stremio\.stremio-shell-macos)$'
-find_stremio_bundle() {
-  local app
-  while IFS= read -r app; do
-    if /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
-        "${app}/Contents/Info.plist" 2>/dev/null \
-        | grep -qE "${STREMIO_BUNDLE_IDS_REGEX}"; then
-      printf '%s\n' "${app}"
-      return 0
-    fi
-  done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
-  return 1
-}
+# Discover the v5 bundle by identifier. Accept either bundle ID
+# Stremio has shipped during the v5 beta, and among multiple matches
+# prefer the one whose WebKit data dir is biggest (= the app the
+# user actually has addons/login in). Override with STREMIO_BUNDLE_ID.
+STREMIO_BUNDLE_IDS=(com.westbridge.stremio5-mac com.stremio.stremio-shell-macos)
+
 bundle_id_of() {
   /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
     "${1}/Contents/Info.plist" 2>/dev/null
+}
+webkit_data_size() {
+  local id="$1" dir="${HOME}/Library/WebKit/${1}/WebsiteData"
+  [[ -d "${dir}" ]] || { printf '0\n'; return 0; }
+  du -sk "${dir}" 2>/dev/null | awk '{print $1+0}'
+}
+find_stremio_bundle() {
+  local candidates=() app id want c size best="" best_size=-1
+  while IFS= read -r app; do
+    id="$(bundle_id_of "${app}")"
+    for want in "${STREMIO_BUNDLE_IDS[@]}"; do
+      [[ "${id}" == "${want}" ]] && { candidates+=("${app}|${id}"); break; }
+    done
+  done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
+  [[ ${#candidates[@]} -eq 0 ]] && return 1
+
+  if [[ -n "${STREMIO_BUNDLE_ID:-}" ]]; then
+    for c in "${candidates[@]}"; do
+      [[ "${c##*|}" == "${STREMIO_BUNDLE_ID}" ]] && { printf '%s\n' "${c%%|*}"; return 0; }
+    done
+  fi
+  for c in "${candidates[@]}"; do
+    size="$(webkit_data_size "${c##*|}")"
+    (( size > best_size )) && { best_size="${size}"; best="${c%%|*}"; }
+  done
+  printf '%s\n' "${best}"
 }
 
 wait_for_port() {

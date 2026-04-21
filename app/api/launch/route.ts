@@ -34,19 +34,60 @@ function originFromRequest(req: NextRequest): string {
  * identifiers over the life of the beta — older builds use
  * `com.westbridge.stremio5-mac`, while the current Stremio-signed
  * DMG (`dl.strem.io/stremio-shell-macos/…`) uses
- * `com.stremio.stremio-shell-macos`. We accept either so the cast
- * bridge keeps working across upgrades.
+ * `com.stremio.stremio-shell-macos`. We accept either.
+ *
+ * When both are installed side-by-side, we pick the one whose
+ * ~/Library/WebKit/<id>/WebsiteData dir is largest — that's the
+ * Stremio the user has actually populated with addons, library, and
+ * login. Returning the "fresh" one instead would boot Stremio into
+ * an empty profile, which is indistinguishable from "my addons were
+ * deleted" from the user's perspective.
  */
 const STREMIO_BUNDLE_IDS = [
   "com.westbridge.stremio5-mac",
   "com.stremio.stremio-shell-macos",
 ] as const;
 
+async function webkitDataSize(bundleId: string): Promise<number> {
+  // We use recursive stat rather than shelling out so this stays
+  // portable (no `du` dependency) and fast on small trees.
+  const dir = join(
+    homedir(),
+    "Library",
+    "WebKit",
+    bundleId,
+    "WebsiteData"
+  );
+  let total = 0;
+  const walk = async (p: string): Promise<void> => {
+    let entries: string[];
+    try {
+      entries = await readdir(p);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      const full = join(p, name);
+      try {
+        const s = await stat(full);
+        if (s.isDirectory()) await walk(full);
+        else total += s.size;
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  await walk(dir);
+  return total;
+}
+
 async function resolveStremioBundle(): Promise<{
   bundlePath: string;
   binary: string;
   bundleId: string;
 } | null> {
+  type Match = { bundlePath: string; binary: string; bundleId: string };
+  const matches: Match[] = [];
   try {
     const entries = await readdir("/Applications");
     for (const entry of entries) {
@@ -65,16 +106,28 @@ async function resolveStremioBundle(): Promise<{
       );
       const exeName = exeMatch ? exeMatch[1] : "Stremio";
       const bundlePath = join("/Applications", entry);
-      return {
+      matches.push({
         bundlePath,
         binary: join(bundlePath, "Contents", "MacOS", exeName),
         bundleId: matchedId,
-      };
+      });
     }
   } catch {
     /* ignore */
   }
-  return null;
+  if (matches.length === 0) return null;
+  // Optional pin via env var for advanced users / CI.
+  const pinned = process.env.STREMIO_BUNDLE_ID;
+  if (pinned) {
+    const hit = matches.find((m) => m.bundleId === pinned);
+    if (hit) return hit;
+  }
+  // Preserve the user's data by preferring the populated bundle.
+  const sized = await Promise.all(
+    matches.map(async (m) => ({ m, size: await webkitDataSize(m.bundleId) }))
+  );
+  sized.sort((a, b) => b.size - a.size);
+  return sized[0].m;
 }
 
 /**
