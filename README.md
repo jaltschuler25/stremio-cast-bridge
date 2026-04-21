@@ -68,7 +68,7 @@ This repository is an **unofficial** reference implementation (not affiliated wi
 
 ## Prerequisites
 
-- macOS with **Stremio 5 ARM beta** installed (`com.westbridge.stremio5-mac`, v5.1.x).
+- macOS with **Stremio 5 ARM beta** installed. The bridge recognises both bundle IDs Stremio has shipped during the v5 beta: `com.westbridge.stremio5-mac` (early builds) and `com.stremio.stremio-shell-macos` (current Stremio-signed builds from [dl.strem.io/stremio-shell-macos/](https://dl.strem.io/stremio-shell-macos/)).
 - Node.js ≥ 20.
 - The bridge HTTP server binds to **127.0.0.1** only (see `npm run dev` / `npm run start` in `package.json`).
 - The Chromecast and your Mac on the same Wi-Fi (obviously).
@@ -187,7 +187,7 @@ The shim sends a tiny beacon back to the bridge at every lifecycle milestone, lo
   rm -rf ~/Library/WebKit/com.westbridge.stremio5-mac/WebsiteData/Default
   ```
   Your login, library and addons live in `LocalStorage`/`IndexedDB`, which we leave alone.
-- **`[shim] boot` but no `[shim] cast-kick`.** Stremio's Chromecast service is running but hasn't registered its `window.__onGCastApiAvailable` handler yet. The shim retries for 60 s — if the kick never arrives, check that you're on the v5.1.19 build (Stremio 2.app, identifier `com.westbridge.stremio5-mac`). Earlier v5 betas didn't ship the ChromecastTransport at all.
+- **`[shim] boot` but no `[shim] cast-kick`.** Stremio's Chromecast service is running but hasn't registered its `window.__onGCastApiAvailable` handler yet. The shim retries for 60 s — if the kick never arrives, check that you're on the v5.1.19 build (either identifier `com.westbridge.stremio5-mac` or `com.stremio.stremio-shell-macos`). Earlier v5 betas didn't ship the ChromecastTransport at all.
 - **Picker opens but "No devices found".** Hit `curl http://localhost:11470/casting/` directly. If that's also empty, the problem is mDNS permission / network, not the bridge. macOS Sonoma+ requires explicit Local Network permission for the Stremio process on first launch — toggle it in System Settings → Privacy & Security → Local Network.
 - **Cast starts but TV plays then stalls.** Some streams (HLS, torrents) require the server's transcode endpoint. The shim forwards the raw `<video>.src` to `/casting/:id/player?source=`; Stremio's server-side `ChromecastClient` handles the transcode negotiation from there. If a specific stream format won't play, the same stream won't play from v4 either — it's a codec support issue on your Chromecast, not the bridge.
 

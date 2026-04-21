@@ -153,16 +153,22 @@ mkdir -p "$(dirname "${LOG_FILE}")"
 log() { printf '[stremio-cast %s] %s\n' "$(date '+%H:%M:%S')" "$*" | tee -a "${LOG_FILE}"; }
 
 # ---- Stremio 5 bundle discovery (by CFBundleIdentifier) ----------
+# Accept both bundle IDs Stremio has shipped during the v5 beta.
+STREMIO_BUNDLE_IDS_REGEX='^(com\.westbridge\.stremio5-mac|com\.stremio\.stremio-shell-macos)$'
 find_stremio_bundle() {
   local app
   while IFS= read -r app; do
     if /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
         "${app}/Contents/Info.plist" 2>/dev/null \
-        | grep -q '^com.westbridge.stremio5-mac$'; then
+        | grep -qE "${STREMIO_BUNDLE_IDS_REGEX}"; then
       printf '%s\n' "${app}"; return 0
     fi
   done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
   return 1
+}
+bundle_id_of() {
+  /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+    "${1}/Contents/Info.plist" 2>/dev/null
 }
 
 wait_for_port() {
@@ -174,11 +180,12 @@ wait_for_port() {
 }
 
 BUNDLE="$(find_stremio_bundle)" || {
-  log "ERROR: Stremio 5 (com.westbridge.stremio5-mac) not found in /Applications"
+  log "ERROR: Stremio 5 not found in /Applications (looked for com.westbridge.stremio5-mac or com.stremio.stremio-shell-macos)"
   osascript -e 'display alert "Stremio Cast" message "Stremio 5 (ARM beta) is not installed in /Applications. Download it from stremio.com and try again."' || true
   exit 1
 }
-log "found Stremio: ${BUNDLE}"
+BUNDLE_ID="$(bundle_id_of "${BUNDLE}")"
+log "found Stremio: ${BUNDLE} (id: ${BUNDLE_ID})"
 
 # ---- Boot embedded bridge if not already listening --------------
 if ! nc -z 127.0.0.1 "${BRIDGE_PORT}" 2>/dev/null; then
@@ -195,8 +202,9 @@ else
 fi
 
 # ---- Kill existing Stremio + its Node child (see stremio-cast.sh) -
-pkill -f "${BUNDLE}/Contents/MacOS/Stremio" 2>/dev/null || true
-pkill -f "${BUNDLE}/Contents/MacOS/node"    2>/dev/null || true
+# Match by the bundle's MacOS dir so both the Rust shell and the
+# node server.js child are terminated before we relaunch.
+pkill -f "${BUNDLE}/Contents/MacOS/" 2>/dev/null || true
 sleep 1
 for i in $(seq 1 20); do
   if ! nc -z 127.0.0.1 11470 2>/dev/null; then break; fi
@@ -204,9 +212,11 @@ for i in $(seq 1 20); do
 done
 
 # ---- Surgical WKWebView cache wipe (preserves addons + login) ---
+# Uses the actual bundle ID we discovered so both the old
+# (westbridge) and new (stremio-shell-macos) builds are handled.
 log "purging WKWebView HTTP + service-worker cache"
-WEBKIT_CACHE="${HOME}/Library/Caches/com.westbridge.stremio5-mac/WebKit"
-WEBKIT_DATA="${HOME}/Library/WebKit/com.westbridge.stremio5-mac/WebsiteData"
+WEBKIT_CACHE="${HOME}/Library/Caches/${BUNDLE_ID}/WebKit"
+WEBKIT_DATA="${HOME}/Library/WebKit/${BUNDLE_ID}/WebsiteData"
 rm -rf "${WEBKIT_CACHE}/NetworkCache" "${WEBKIT_CACHE}/CacheStorage"
 if [[ -d "${WEBKIT_DATA}/Default" ]]; then
   find "${WEBKIT_DATA}/Default" -type d \

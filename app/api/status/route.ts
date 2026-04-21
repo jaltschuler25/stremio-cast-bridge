@@ -20,9 +20,16 @@ export const dynamic = "force-dynamic";
 
 /**
  * Walk /Applications looking for a bundle whose Info.plist identifier
- * starts with `com.westbridge.stremio5-mac` (the v5 Mac bundle).
+ * matches either of the two Stremio 5 Mac bundle IDs shipped during
+ * the beta — older builds use `com.westbridge.stremio5-mac`, newer
+ * Stremio-signed builds use `com.stremio.stremio-shell-macos`.
  * Returns the path + version string or null.
  */
+const STREMIO_BUNDLE_IDS = [
+  "com.westbridge.stremio5-mac",
+  "com.stremio.stremio-shell-macos",
+] as const;
+
 async function findStremio5App(): Promise<{
   path: string;
   version: string | null;
@@ -38,7 +45,7 @@ async function findStremio5App(): Promise<{
       } catch {
         continue;
       }
-      if (!plist.includes("com.westbridge.stremio5-mac")) continue;
+      if (!STREMIO_BUNDLE_IDS.some((id) => plist.includes(id))) continue;
       const versionMatch = plist.match(
         /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/
       );

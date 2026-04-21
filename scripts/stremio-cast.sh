@@ -64,18 +64,34 @@ resolve_node() {
 # ---------------------------------------------------------------
 # Stremio 5 bundle discovery — same logic the launch API uses, so
 # the script keeps working even if the user renamed "Stremio 2.app".
+#
+# Stremio shipped v5 under two different CFBundleIdentifiers over
+# the course of the beta:
+#   * com.westbridge.stremio5-mac        (early beta, v5.1.x)
+#   * com.stremio.stremio-shell-macos    (current/newer beta; DMG
+#     URL now lives under /stremio-shell-macos/ too)
+# We accept either so users on either build get the cast bridge.
 # ---------------------------------------------------------------
+STREMIO_BUNDLE_IDS_REGEX='^(com\.westbridge\.stremio5-mac|com\.stremio\.stremio-shell-macos)$'
+
 find_stremio_bundle() {
   local app
   while IFS= read -r app; do
     if /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
         "${app}/Contents/Info.plist" 2>/dev/null \
-        | grep -q '^com.westbridge.stremio5-mac$'; then
+        | grep -qE "${STREMIO_BUNDLE_IDS_REGEX}"; then
       printf '%s\n' "${app}"
       return 0
     fi
   done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
   return 1
+}
+
+# Resolve the bundle ID of the discovered app so we can target the
+# right cache/data directories when purging WKWebView state.
+bundle_id_of() {
+  /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+    "${1}/Contents/Info.plist" 2>/dev/null
 }
 
 wait_for_port() {
@@ -128,11 +144,12 @@ start_bridge() {
 # Main
 # ---------------------------------------------------------------
 BUNDLE="$(find_stremio_bundle)" || {
-  log "ERROR: Stremio 5 bundle (com.westbridge.stremio5-mac) not found in /Applications"
-  osascript -e 'display alert "Stremio Cast" message "Stremio 5 (ARM beta) is not installed in /Applications."' || true
+  log "ERROR: Stremio 5 bundle not found in /Applications (looked for com.westbridge.stremio5-mac or com.stremio.stremio-shell-macos)"
+  osascript -e 'display alert "Stremio Cast" message "Stremio 5 (ARM beta) is not installed in /Applications. Download it from stremio.com."' || true
   exit 1
 }
-log "found Stremio bundle at ${BUNDLE}"
+BUNDLE_ID="$(bundle_id_of "${BUNDLE}")"
+log "found Stremio bundle at ${BUNDLE} (id: ${BUNDLE_ID})"
 
 start_bridge
 
@@ -145,11 +162,9 @@ start_bridge
 # fails to bind, and casting silently shows "searching…" forever
 # because nothing is answering /casting/ requests.
 # ---------------------------------------------------------------
-pkill -f "${BUNDLE}/Contents/MacOS/Stremio" 2>/dev/null || true
-pkill -f "Stremio 2.app/Contents/MacOS/Stremio" 2>/dev/null || true
-# Kill the node child (matches "…/MacOS/node …/MacOS/server.js")
-pkill -f "${BUNDLE}/Contents/MacOS/node" 2>/dev/null || true
-pkill -f "Stremio 2.app/Contents/MacOS/node" 2>/dev/null || true
+# Match the bundle's MacOS dir so we hit BOTH the Rust shell binary
+# AND the node server.js child (whose cmdline includes this path).
+pkill -f "${BUNDLE}/Contents/MacOS/" 2>/dev/null || true
 sleep 1
 # Wait for port 11470 to actually free up — otherwise the fresh
 # server.js races against the one still shutting down.
@@ -165,8 +180,8 @@ done
 # your installed addons, library, and settings there — nuking
 # them would effectively factory-reset Stremio on every launch.
 log "purging WKWebView HTTP + service-worker cache (preserving addons / login)"
-WEBKIT_CACHE="${HOME}/Library/Caches/com.westbridge.stremio5-mac/WebKit"
-WEBKIT_DATA="${HOME}/Library/WebKit/com.westbridge.stremio5-mac/WebsiteData"
+WEBKIT_CACHE="${HOME}/Library/Caches/${BUNDLE_ID}/WebKit"
+WEBKIT_DATA="${HOME}/Library/WebKit/${BUNDLE_ID}/WebsiteData"
 rm -rf "${WEBKIT_CACHE}/NetworkCache" "${WEBKIT_CACHE}/CacheStorage"
 # Per-origin caches under Default/<salt>/<salt>/ — glob-safe wipe.
 if [[ -d "${WEBKIT_DATA}/Default" ]]; then

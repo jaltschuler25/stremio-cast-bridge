@@ -29,9 +29,23 @@ function originFromRequest(req: NextRequest): string {
   return `http://127.0.0.1:${port}`;
 }
 
+/**
+ * Stremio has shipped the v5 macOS shell under two different bundle
+ * identifiers over the life of the beta — older builds use
+ * `com.westbridge.stremio5-mac`, while the current Stremio-signed
+ * DMG (`dl.strem.io/stremio-shell-macos/…`) uses
+ * `com.stremio.stremio-shell-macos`. We accept either so the cast
+ * bridge keeps working across upgrades.
+ */
+const STREMIO_BUNDLE_IDS = [
+  "com.westbridge.stremio5-mac",
+  "com.stremio.stremio-shell-macos",
+] as const;
+
 async function resolveStremioBundle(): Promise<{
   bundlePath: string;
   binary: string;
+  bundleId: string;
 } | null> {
   try {
     const entries = await readdir("/Applications");
@@ -44,7 +58,8 @@ async function resolveStremioBundle(): Promise<{
       } catch {
         continue;
       }
-      if (!plist.includes("com.westbridge.stremio5-mac")) continue;
+      const matchedId = STREMIO_BUNDLE_IDS.find((id) => plist.includes(id));
+      if (!matchedId) continue;
       const exeMatch = plist.match(
         /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/
       );
@@ -53,6 +68,7 @@ async function resolveStremioBundle(): Promise<{
       return {
         bundlePath,
         binary: join(bundlePath, "Contents", "MacOS", exeName),
+        bundleId: matchedId,
       };
     }
   } catch {
@@ -73,16 +89,13 @@ async function resolveStremioBundle(): Promise<{
  * settings there — wiping them would factory-reset Stremio each
  * launch, which is what broke "addons don't persist" before.
  */
-async function wipeWebViewCache(): Promise<void> {
+async function wipeWebViewCache(bundleId: string): Promise<void> {
   const home = homedir();
-  const cacheRoot = join(
-    home,
-    "Library/Caches/com.westbridge.stremio5-mac/WebKit"
-  );
-  const dataRoot = join(
-    home,
-    "Library/WebKit/com.westbridge.stremio5-mac/WebsiteData"
-  );
+  // WebKit namespaces its on-disk caches by the host app's bundle
+  // identifier, so we scope the wipe to whichever Stremio variant
+  // we actually found (see STREMIO_BUNDLE_IDS above).
+  const cacheRoot = join(home, `Library/Caches/${bundleId}/WebKit`);
+  const dataRoot = join(home, `Library/WebKit/${bundleId}/WebsiteData`);
 
   // Safe to wipe outright.
   const topLevelTargets = [
@@ -130,16 +143,17 @@ async function wipeWebViewCache(): Promise<void> {
  * Kill it first so our `open -n` spawns a brand-new process bound to
  * our --webui-url.
  *
- * The pattern "Stremio 2.app" deliberately matches BOTH the Rust
- * shell binary AND its node `server.js` child (whose cmdline also
- * contains the app path). Leaving the child alive would orphan it,
- * keep port 11470 bound, and cause the freshly-spawned server.js
- * to silently fail to start — which manifests as the cast chooser
+ * We pkill by the bundle's absolute MacOS path so the pattern matches
+ * BOTH the Rust shell binary AND its node `server.js` child (whose
+ * cmdline also contains the app path). Leaving the child alive would
+ * orphan it, keep port 11470 bound, and cause the freshly-spawned
+ * server.js to silently fail to start — manifests as the cast chooser
  * spinning forever on "searching…".
  */
-async function killExistingShell(): Promise<void> {
+async function killExistingShell(bundlePath: string): Promise<void> {
+  const macosDir = join(bundlePath, "Contents", "MacOS");
   await new Promise<void>((resolve) => {
-    const p = spawn("pkill", ["-f", "Stremio 2.app"], { stdio: "ignore" });
+    const p = spawn("pkill", ["-f", macosDir], { stdio: "ignore" });
     p.on("close", () => resolve());
     p.on("error", () => resolve());
   });
@@ -170,8 +184,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  await killExistingShell();
-  await wipeWebViewCache();
+  await killExistingShell(found.bundlePath);
+  await wipeWebViewCache(found.bundleId);
 
   // Resolve the bridge's own public URL from the inbound request so
   // this keeps working even when Next fell back to a non-default

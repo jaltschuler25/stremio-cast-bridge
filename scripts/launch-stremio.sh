@@ -17,18 +17,25 @@ BRIDGE_PORT="${BRIDGE_PORT:-36970}"
 WEBUI_URL="http://127.0.0.1:${BRIDGE_PORT}/cast-bridge/"
 
 # Discover the v5 bundle by identifier so the script keeps working
-# even if the user renamed the .app directory.
+# even if the user renamed the .app directory. Accept either bundle
+# ID Stremio has shipped during the v5 beta: the original westbridge
+# build and the current stremio-shell-macos build.
+STREMIO_BUNDLE_IDS_REGEX='^(com\.westbridge\.stremio5-mac|com\.stremio\.stremio-shell-macos)$'
 find_stremio_bundle() {
   local app
   while IFS= read -r app; do
     if /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
         "${app}/Contents/Info.plist" 2>/dev/null \
-        | grep -q '^com.westbridge.stremio5-mac$'; then
+        | grep -qE "${STREMIO_BUNDLE_IDS_REGEX}"; then
       printf '%s\n' "${app}"
       return 0
     fi
   done < <(find /Applications -maxdepth 2 -name '*.app' -type d)
   return 1
+}
+bundle_id_of() {
+  /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+    "${1}/Contents/Info.plist" 2>/dev/null
 }
 
 wait_for_port() {
@@ -43,9 +50,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}/.."
 
 BUNDLE="$(find_stremio_bundle)" || {
-  echo "Stremio 5 not found in /Applications. Install com.westbridge.stremio5-mac first." >&2
+  echo "Stremio 5 not found in /Applications. Install the Stremio 5 beta (com.westbridge.stremio5-mac or com.stremio.stremio-shell-macos) first." >&2
   exit 1
 }
+BUNDLE_ID="$(bundle_id_of "${BUNDLE}")"
 
 # Boot the bridge if it isn't already running.
 if ! nc -z 127.0.0.1 "${BRIDGE_PORT}" 2>/dev/null; then
@@ -56,13 +64,13 @@ if ! nc -z 127.0.0.1 "${BRIDGE_PORT}" 2>/dev/null; then
   wait_for_port "${BRIDGE_PORT}"
 fi
 
-# Kill any existing Stremio 5 window so --webui-url isn't swallowed
-# by LaunchServices' "already running" dance. Also kill the Node
-# server.js subprocess — if we leave it orphaned it keeps port
-# 11470 and the freshly-spawned server can't bind, which makes
-# the casting device chooser spin forever on "searching…".
-pkill -f "Stremio 2.app/Contents/MacOS/Stremio" 2>/dev/null || true
-pkill -f "Stremio 2.app/Contents/MacOS/node" 2>/dev/null || true
+# Kill any existing Stremio 5 process so --webui-url isn't swallowed
+# by LaunchServices' "already running" dance. Target the actual
+# bundle's MacOS dir so the pattern matches BOTH the Rust shell and
+# the node server.js child — if we leave the child orphaned it
+# keeps port 11470 and the freshly-spawned server can't bind, which
+# makes the casting device chooser spin forever on "searching…".
+pkill -f "${BUNDLE}/Contents/MacOS/" 2>/dev/null || true
 sleep 1
 for i in $(seq 1 20); do
   if ! nc -z 127.0.0.1 11470 2>/dev/null; then break; fi
@@ -71,10 +79,11 @@ done
 
 # Purge HTTP + service-worker cache only — we explicitly leave
 # LocalStorage + IndexedDB alone so installed addons, library and
-# login survive across launches.
+# login survive across launches. Scoped by the actual bundle ID so
+# we wipe the right WebKit namespace for this Stremio variant.
 echo "Wiping WKWebView HTTP + service-worker cache (addons / login preserved)…"
-WEBKIT_CACHE="${HOME}/Library/Caches/com.westbridge.stremio5-mac/WebKit"
-WEBKIT_DATA="${HOME}/Library/WebKit/com.westbridge.stremio5-mac/WebsiteData"
+WEBKIT_CACHE="${HOME}/Library/Caches/${BUNDLE_ID}/WebKit"
+WEBKIT_DATA="${HOME}/Library/WebKit/${BUNDLE_ID}/WebsiteData"
 rm -rf "${WEBKIT_CACHE}/NetworkCache" "${WEBKIT_CACHE}/CacheStorage"
 if [[ -d "${WEBKIT_DATA}/Default" ]]; then
   find "${WEBKIT_DATA}/Default" -type d \
