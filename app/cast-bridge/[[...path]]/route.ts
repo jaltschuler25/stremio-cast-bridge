@@ -41,23 +41,29 @@ export const dynamic = "force-dynamic";
  * shim is part of the same byte stream as the document, so it runs
  * the moment the parser reaches the tag.
  */
-let shimCache: { mtimeMs: number; body: string } | null = null;
-async function loadShim(): Promise<string> {
-  const p = join(process.cwd(), "public", "cast-shim.js");
-  // `stat` would be another syscall — since the file is small, just
-  // re-read it every time in dev. Next in prod caches the module
-  // scope so this pays off; we also keep a tiny memo to avoid
-  // rereading for concurrent requests.
+type ScriptCache = { mtimeMs: number; body: string };
+
+/**
+ * Read one of our injected client scripts from disk, re-reading on
+ * mtime change so edits show up without bouncing Next.js in dev. We
+ * keep a tiny per-file memo to avoid re-reading on concurrent
+ * requests and so production (where mtimes don't change) is a single
+ * fs read per process.
+ */
+const scriptCache = new Map<string, ScriptCache>();
+async function loadClientScript(filename: string): Promise<string> {
+  const p = join(process.cwd(), "public", filename);
   try {
     const { statSync } = await import("node:fs");
     const s = statSync(p);
-    if (shimCache && shimCache.mtimeMs === s.mtimeMs) return shimCache.body;
+    const memo = scriptCache.get(filename);
+    if (memo && memo.mtimeMs === s.mtimeMs) return memo.body;
     const body = await readFile(p, "utf8");
-    shimCache = { mtimeMs: s.mtimeMs, body };
+    scriptCache.set(filename, { mtimeMs: s.mtimeMs, body });
     return body;
   } catch (err) {
-    console.error("[cast-bridge] failed to read cast-shim.js", err);
-    return "/* cast-shim.js failed to load */";
+    console.error(`[cast-bridge] failed to read ${filename}`, err);
+    return `/* ${filename} failed to load */`;
   }
 }
 
@@ -109,16 +115,14 @@ const STRIP_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Build the inline shim tag. We wrap the script body in a guarded
- * IIFE and a data attribute so we can easily identify it in dev
- * tools. The body is read from disk at request time by `loadShim`.
+ * Build an inline injected <script> tag. We wrap the script body
+ * with a `data-cast-bridge` attribute so it's easy to identify in
+ * dev tools and escape any literal `</script>` tokens so the HTML
+ * parser doesn't bail out of the script context early.
  */
-function buildShimTag(body: string): string {
-  // Escape `</script>` occurrences so the HTML parser doesn't bail
-  // out of the script context early. Unlikely in our own code, but a
-  // free safety net.
+function buildInlineScript(body: string, label: string): string {
   const safe = body.replace(/<\/script/gi, "<\\/script");
-  return `<script data-cast-bridge="1">${safe}</script>`;
+  return `<script data-cast-bridge="${label}">${safe}</script>`;
 }
 
 function buildUpstreamUrl(path: string[] | undefined, search: string): string {
@@ -134,24 +138,25 @@ function isHtmlResponse(contentType: string | null): boolean {
   return contentType.toLowerCase().includes("text/html");
 }
 
-function injectShim(html: string, shimTag: string): string {
+function injectScripts(html: string, scriptTags: string[]): string {
   let patched = html;
   for (const re of STRIP_PATTERNS) {
     patched = patched.replace(re, "");
   }
+  const blob = scriptTags.join("");
   // Inject right after `</title>` — after `<meta charset>` (so the
   // encoding is locked in) but before Stremio's own `<script src>`
   // tags (so our fake Cast API is visible when `main.js` executes).
   if (/<\/title>/i.test(patched)) {
-    return patched.replace(/<\/title>/i, (m) => `${m}${shimTag}`);
+    return patched.replace(/<\/title>/i, (m) => `${m}${blob}`);
   }
   if (/<head[^>]*>/i.test(patched)) {
-    return patched.replace(/<head[^>]*>/i, (m) => `${m}${shimTag}`);
+    return patched.replace(/<head[^>]*>/i, (m) => `${m}${blob}`);
   }
   if (patched.includes("</body>")) {
-    return patched.replace("</body>", `${shimTag}</body>`);
+    return patched.replace("</body>", `${blob}</body>`);
   }
-  return shimTag + patched;
+  return blob + patched;
 }
 
 /**
@@ -235,10 +240,23 @@ async function handle(
     });
   }
 
-  // Slow path: pull HTML into memory so we can rewrite it.
+  // Slow path: pull HTML into memory so we can rewrite it. We inject
+  // two separate <script> blocks:
+  //   1. cast-shim.js       — fakes the Google Cast SDK so the cast
+  //                           button re-enables and drives the
+  //                           server-side /casting/ API.
+  //   2. preinstall-addons.js — opens Stremio's own addon install
+  //                           dialog on first launch for default
+  //                           addons (Torrentio, etc.).
   const rawHtml = await upstream.text();
-  const shimBody = await loadShim();
-  const patched = injectShim(rawHtml, buildShimTag(shimBody));
+  const [shimBody, preinstallBody] = await Promise.all([
+    loadClientScript("cast-shim.js"),
+    loadClientScript("preinstall-addons.js"),
+  ]);
+  const patched = injectScripts(rawHtml, [
+    buildInlineScript(shimBody, "shim"),
+    buildInlineScript(preinstallBody, "preinstall"),
+  ]);
 
   const headers = new Headers(upstream.headers);
   headers.delete("content-encoding");

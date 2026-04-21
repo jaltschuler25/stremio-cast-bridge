@@ -22,6 +22,14 @@ Paste this into a Terminal. It clones this repo, downloads the official Stremio 
 
 Requires **Node.js 20+** and **git** already installed.
 
+## Default addons (pre-installed)
+
+On a user's first launch, Stremio Cast automatically opens Stremio's own addon-install dialog for a small curated list of "pack-in" addons so a brand-new user has working stream sources immediately. Currently:
+
+- **[Torrentio](https://torrentio.strem.fun/)** — torrent stream provider
+
+We deliberately do **not** install silently — we use Stremio's official `#/addons?addon=<url>` flow so the user sees exactly what's being added and can decline. Each addon is prompted at most once per install (tracked in `localStorage` under `castBridge:preinstalled:*`). To change the list, edit `DEFAULT_ADDONS` in [`public/preinstall-addons.js`](public/preinstall-addons.js).
+
 ## Why this exists
 
 Stremio 5 ships a new Rust-based shell that hosts the web UI inside WKWebView. The web UI's cast logic ([`ChromecastTransport`](https://github.com/Stremio/stremio-web/blob/development/src/services/Chromecast/ChromecastTransport.js)) depends on Google's Cast Web Sender SDK, which is Chromium-only — it silently no-ops inside WKWebView. In the v4 shell (Qt/Chromium) the SDK worked, so the button lit up. In v5 it stays disabled forever, and [the Stremio team has left the feature unimplemented](https://github.com/Stremio/stremio-bugs/issues/1316).
